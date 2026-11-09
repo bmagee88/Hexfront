@@ -97,7 +97,7 @@ export default function Home() {
             </button>
             <div className="hero-facts">
               <div>
-                <b>37</b>
+                <b>42–44</b>
                 <span>territories to claim</span>
               </div>
               <div>
@@ -115,7 +115,7 @@ export default function Home() {
             <div className="map-orbit orbit-two" />
             <div className="map-caption">
               <span>THE FRONTIER</span>
-              <small>37 CONNECTED TERRITORIES</small>
+              <small>RANDOMIZED · CONNECTED TERRITORIES</small>
             </div>
             <Board {...preview} decorative />
             <div className="map-note">
@@ -194,7 +194,7 @@ export default function Home() {
             )}
             <p className="muted">
               {mode === "practice"
-                ? "A server-operated automaton joins your campaign. The same rules apply."
+                ? "An automaton joins your lobby. Choose your map, then begin opening deployment."
                 : "No account needed. Your reconnect key stays in this browser."}
             </p>
             {mode !== "practice" && (

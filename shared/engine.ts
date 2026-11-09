@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { adjacent } from "./map";
+import { adjacent, generateMap, territoryCount, MAP_ALGORITHM } from "./map";
 export { adjacent } from "./map";
 import { ABILITIES, ONE_SHOT, PRICES } from "./cards";
 import {
@@ -8,6 +8,7 @@ import {
   Alliance,
   COLORS,
   Deck,
+  HAND_LIMIT,
   NumberedHex,
   PendingReaction,
   Player,
@@ -186,6 +187,49 @@ export function addPlayer(
     turns: 0,
   });
   log(s, `${name} joined${spectator ? " to spectate" : ""}.`);
+  ensureLobbyMap(s);
+}
+export function ensureLobbyMap(s: Room): boolean {
+  if (s.phase !== "lobby") return false;
+  const count = territoryCount(s.players.filter((p) => !p.spectator).length);
+  if (
+    !s.mapChoices?.length ||
+    s.board.length !== count ||
+    s.mapAlgorithm !== MAP_ALGORITHM
+  ) {
+    s.mapChoices = [];
+    s.mapIndex = 0;
+    generateMaps(s, 1);
+    return true;
+  }
+  return false;
+}
+function generateMaps(s: Room, count: 1 | 6) {
+  const size = territoryCount(s.players.filter((p) => !p.spectator).length);
+  const generation = (s.mapGeneration || 0) + 1;
+  s.mapAlgorithm = MAP_ALGORITHM;
+  s.mapGeneration = generation;
+  const choices = Array.from({ length: count }, (_, i) => {
+    const seed = `${s.code}:${s.settings.seed}:${generation}:${i}`;
+    return {
+      id: `map-${generation}-${i}`,
+      seed,
+      board: generateMap(size, seed),
+    };
+  });
+  s.mapChoices = [...(s.mapChoices || []), ...choices];
+  if (count === 1) {
+    s.mapIndex = s.mapChoices.length - 1;
+    s.board = structuredClone(choices[0].board);
+  }
+  if (s.mapChoices.length > 24) {
+    const selected = s.mapChoices[s.mapIndex || 0];
+    s.mapChoices = [
+      selected,
+      ...s.mapChoices.filter((c) => c.id !== selected.id).slice(-23),
+    ];
+    s.mapIndex = 0;
+  }
 }
 function setup(s: Room) {
   s.rng = 0;
@@ -216,27 +260,18 @@ function setup(s: Room) {
     }
   for (const d of Object.keys(s.decks) as Deck[])
     s.decks[d] = shuffle(s, s.decks[d]);
-  s.board = [];
-  let i = 0;
-  for (let r = -3; r <= 3; r++)
-    for (let q = -3; q <= 3; q++)
-      if (Math.abs(q + r) <= 3) {
-        const radius = Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
-        const angle =
-          (Math.atan2(r * 1.5, Math.sqrt(3) * (q + r / 2)) + Math.PI * 2) %
-          (Math.PI * 2);
-        s.board.push({
-          id: `T${String(++i).padStart(2, "0")}`,
-          q,
-          r,
-          region:
-            radius <= 1
-              ? 0
-              : 1 + Math.min(4, Math.floor(angle / ((Math.PI * 2) / 5))),
-          stack: [s.decks.basic.pop()!],
-          rebels: [null, null, null],
-        });
-      }
+  const size = territoryCount(s.players.filter((p) => !p.spectator).length);
+  const chosen = s.mapChoices?.[s.mapIndex || 0]?.board;
+  s.board =
+    chosen?.length === size
+      ? structuredClone(chosen)
+      : generateMap(size, `${s.code}:${s.settings.seed}:opening`);
+  for (const t of s.board) {
+    t.stack = [];
+    t.rebels = [null, null, null];
+    delete t.ceasefire;
+    delete t.patrol;
+  }
   const commanders = s.players.filter((p) => !p.spectator);
   s.players = [
     ...shuffle(s, commanders),
@@ -254,7 +289,9 @@ function setup(s: Room) {
     p.patrolRound = 0;
   }
   const ids = s.players.filter((p) => !p.spectator).map((p) => p.id);
-  s.draft = [...ids, ...[...ids].reverse(), ...ids];
+  s.draft = Array.from({ length: s.board.length / ids.length }, (_, pass) =>
+    pass % 2 ? [...ids].reverse() : ids,
+  ).flat();
   s.draftIndex = 0;
   s.phase = "draft";
   s.round = 0;
@@ -270,20 +307,21 @@ function setup(s: Room) {
   s.proposal = undefined;
   s.paused = false;
   for (let j = 0; j < 5; j++) s.forecast.push(bagDraw(s));
-  log(s, "Snake draft begins. Claim three connected starting territories.");
+  for (const p of s.players.filter((p) => !p.spectator)) draw(s, p, HAND_LIMIT);
+  log(
+    s,
+    `Opening deployment begins. Fill all ${s.board.length} territories from your hand, anywhere, in snake order; draw one replacement after each placement.`,
+  );
 }
 export function legalDraft(s: Room, id: string): string[] {
-  const free = s.board.filter((t) => !controller(s, t));
-  const land = owned(s, id);
-  const near = free.filter((t) => land.some((x) => adjacent(x, t)));
-  return (land.length && near.length ? near : free).map((t) => t.id);
+  return s.board.filter((t) => t.stack.length === 0).map((t) => t.id);
 }
 function bagDraw(s: Room): Resource {
   if (!s.bag.length) s.bag = shuffle(s, [...RESOURCES]);
   return s.bag.pop()!;
 }
 function draw(s: Room, p: Player, count: number) {
-  for (let i = 0; i < count && p.hand.length < 7; i++) {
+  for (let i = 0; i < count && p.hand.length < HAND_LIMIT; i++) {
     if (!s.decks.basic.length)
       s.decks.basic = shuffle(s, s.discards.basic.splice(0));
     if (!s.decks.basic.length) break;
@@ -342,7 +380,9 @@ function produce(s: Room) {
 export function coalition(s: Room): Alliance | undefined {
   return s.settings.alliances
     ? s.alliances.find(
-        (a) => a.members.reduce((n, id) => n + owned(s, id).length, 0) >= 19,
+        (a) =>
+          a.members.reduce((n, id) => n + owned(s, id).length, 0) >
+          s.board.length / 2,
       )
     : undefined;
 }
@@ -535,7 +575,7 @@ export function recalculate(s: Room) {
   const minimum = [5, 2, 2, 3, 2];
   for (const p of s.players.filter((p) => !p.spectator)) {
     const key = owned(s, p.id)
-      .map((t) => t.id)
+      .map((t) => `${t.q}:${t.r}`)
       .sort()
       .join(",");
     let path = pathCache.get(key);
@@ -763,7 +803,16 @@ export function applyAction(
       (actor === s.host && ["rematch", "restart", "pause"].includes(a.type)),
     "You are spectating after elimination.",
   );
-  if (a.type === "profile") {
+  if (a.type === "discard" && p.hand.length > HAND_LIMIT) {
+    fail(
+      !s.paused &&
+        !p.spectator &&
+        (s.phase === "draft" || s.phase === "playing"),
+      "Discards are available during an unpaused match.",
+    );
+    const c = handCard(s, p, a.card);
+    spendCard(s, p, c.id);
+  } else if (a.type === "profile") {
     fail(s.phase === "lobby", "Profiles lock when the draft begins.");
     if (a.name) p.name = a.name.trim().slice(0, 24) || p.name;
     if (a.color) {
@@ -788,6 +837,30 @@ export function applyAction(
       "Only the lobby host can change settings.",
     );
     s.settings = { ...s.settings, ...a.settings };
+  } else if (a.type === "generateMaps" || a.type === "chooseMap") {
+    fail(
+      actor === s.host && s.phase === "lobby",
+      "Only the host can choose maps before the game starts.",
+    );
+    ensureLobbyMap(s);
+    if (a.type === "generateMaps") {
+      generateMaps(s, a.mapCount || 1);
+      log(
+        s,
+        `Host generated ${a.mapCount || 1} new map configuration${a.mapCount === 6 ? "s" : ""}.`,
+        actor,
+      );
+    } else {
+      fail(
+        Number.isInteger(a.mapIndex) &&
+          a.mapIndex! >= 0 &&
+          a.mapIndex! < (s.mapChoices?.length || 0),
+        "Choose one of the generated maps.",
+      );
+      s.mapIndex = a.mapIndex;
+      s.board = structuredClone(s.mapChoices![a.mapIndex!].board);
+      log(s, `Host selected map ${s.mapChoices![a.mapIndex!].id}.`, actor);
+    }
   } else if (a.type === "addBot") {
     fail(
       actor === s.host && s.phase === "lobby",
@@ -813,6 +886,7 @@ export function applyAction(
       "Only a bot or disconnected guest can be removed.",
     );
     s.players = s.players.filter((x) => x !== guest);
+    ensureLobbyMap(s);
   } else if (a.type === "start") {
     fail(actor === s.host && s.phase === "lobby", "Only the host can start.");
     const ps = s.players.filter((p) => !p.spectator);
@@ -842,6 +916,10 @@ export function applyAction(
   } else {
     fail(!s.paused, "Match is paused.");
     fail(!p.spectator, "Spectators cannot submit game actions.");
+    fail(
+      p.hand.length <= HAND_LIMIT,
+      `Discard down to ${HAND_LIMIT} tiles before continuing.`,
+    );
     if (a.type === "respond") {
       fail(s.proposal?.to === actor, "No proposal for you.");
       const prop = s.proposal!;
@@ -904,16 +982,24 @@ export function applyAction(
       if (s.phase === "draft") {
         fail(
           a.type === "draft" && legalDraft(s, actor).includes(a.target!),
-          "Choose a highlighted neutral territory.",
+          "Choose an empty territory anywhere on the map.",
         );
         const t = territory(s, a.target);
-        top(s, t).owner = actor;
+        const c = handCard(s, p, a.card);
+        fail(c.deck === "basic", "Deploy a basic hex from your opening hand.");
+        t.stack.push(c.id);
+        c.owner = actor;
+        p.hand.splice(p.hand.indexOf(c.id), 1);
+        draw(s, p, 1);
         s.draftIndex++;
-        log(s, `${p.name} claimed ${t.id}.`, actor);
+        log(
+          s,
+          `${p.name} deployed ${c.value} ${c.resource} at ${t.id} and drew a replacement.`,
+          actor,
+        );
         if (s.draftIndex === s.draft.length) {
           s.phase = "playing";
           s.round = 1;
-          for (const x of s.players.filter((x) => !x.spectator)) draw(s, x, 5);
           produce(s);
           beginTurn(s);
         }
@@ -957,7 +1043,7 @@ export function applyAction(
             const c = handCard(s, p, a.card);
             spendCard(s, p, c.id);
           } else if (a.type === "scout") {
-            fail(p.hand.length < 7, "Hand is full. Discard first.");
+            fail(p.hand.length < HAND_LIMIT, "Hand is full. Discard first.");
             draw(s, p, 2);
             spendAction(s);
           } else if (a.type === "reorganize") {
@@ -968,7 +1054,7 @@ export function applyAction(
           } else if (a.type === "buy") {
             const deck = a.target as Exclude<Deck, "basic">;
             fail(deck in PRICES, "Choose a special deck.");
-            fail(p.hand.length < 7, "Hand is full.");
+            fail(p.hand.length < HAND_LIMIT, "Hand is full.");
             if (!s.decks[deck].length)
               s.decks[deck] = shuffle(s, s.discards[deck].splice(0));
             fail(s.decks[deck].length, "That deck is empty.");
@@ -1305,10 +1391,12 @@ export function view(s: Room, actor: string | null, now: number): RoomView {
     players,
     tiles,
     pending,
+    mapChoices,
     ...rest
   } = s;
   return {
     ...rest,
+    mapChoices: s.phase === "lobby" ? mapChoices : undefined,
     players: players.map(({ tokenHash, hand, raids, ...p }) => ({
       ...p,
       handCount: hand.length,
@@ -1335,6 +1423,12 @@ export function view(s: Room, actor: string | null, now: number): RoomView {
   };
 }
 export function botAction(s: Room, p: Player): Action | undefined {
+  if (
+    !s.paused &&
+    (s.phase === "draft" || s.phase === "playing") &&
+    p.hand.length > HAND_LIMIT
+  )
+    return { type: "discard", card: p.hand.at(-1)! };
   if (s.pending) {
     if (s.pending.defender === p.id) return { type: "guard" };
     return;
@@ -1342,7 +1436,7 @@ export function botAction(s: Room, p: Player): Action | undefined {
   if (s.proposal?.to === p.id) return { type: "respond", accept: false };
   if (current(s) !== p.id || s.paused) return;
   if (s.phase === "draft")
-    return { type: "draft", target: legalDraft(s, p.id)[0] };
+    return { type: "draft", target: legalDraft(s, p.id)[0], card: p.hand[0] };
   if (s.phase !== "playing") return;
   if (!s.actions) return { type: "end" };
   if (score(s, p.id) >= 8) return { type: "end" };
@@ -1357,22 +1451,24 @@ export function botAction(s: Room, p: Player): Action | undefined {
   const buildAt = land.find((t) => t.stack.length < 3);
   if (special && buildAt)
     return { type: "reinforce", target: buildAt.id, card: special.id };
-  if (p.hand.length < 7) {
-    for (const d of Object.keys(PRICES) as Exclude<Deck, "basic">[]) {
+  const availableDecks = (
+    Object.keys(PRICES) as Exclude<Deck, "basic">[]
+  ).filter((d) => s.decks[d].length || s.discards[d].length);
+  if (p.hand.length < HAND_LIMIT) {
+    for (const d of availableDecks) {
       if (
-        s.decks[d].length &&
         Object.entries(PRICES[d]).every(([r, n]) => p.stock[r as Resource] >= n)
       )
         return { type: "buy", target: d };
     }
   }
-  if (land.length) {
-    const wanted = Object.keys(PRICES.Infrastructure).find(
-      (r) =>
-        p.stock[r as Resource] < (PRICES.Infrastructure[r as Resource] || 0),
+  if (land.length && availableDecks.length) {
+    const price = PRICES[availableDecks[0]];
+    const wanted = Object.keys(price).find(
+      (r) => p.stock[r as Resource] < (price[r as Resource] || 0),
     ) as Resource | undefined;
     const surplus = RESOURCES.find(
-      (r) => r !== wanted && p.stock[r] - (PRICES.Infrastructure[r] || 0) >= 3,
+      (r) => r !== wanted && p.stock[r] - (price[r] || 0) >= 3,
     );
     if (wanted && surplus)
       return { type: "bank", give: surplus, resource: wanted };
@@ -1429,7 +1525,7 @@ export function botAction(s: Room, p: Player): Action | undefined {
         card: cards[cards.length - 1].id,
       };
   }
-  if (land.length && p.hand.length < 7) return { type: "scout" };
+  if (land.length && p.hand.length < HAND_LIMIT) return { type: "scout" };
   if (!land.length) {
     const group = s.board.find((t) => pegs(t, p.id));
     if (group && group.rebels.some((x) => !x) && p.stock.Food && p.stock.Cattle)
@@ -1443,7 +1539,7 @@ export function botAction(s: Room, p: Player): Action | undefined {
     );
     if (t) return { type: "raid", target: t.id };
   }
-  if (p.hand.length >= 7)
+  if (p.hand.length >= HAND_LIMIT)
     return { type: "discard", card: p.hand[p.hand.length - 1] };
   return { type: "end" };
 }

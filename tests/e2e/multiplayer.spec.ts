@@ -59,19 +59,87 @@ for (const n of [3, 4])
         return state;
       }
       for (let i = 0; i < n; i++) await act(i, { type: "ready" });
+      if (n === 3) {
+        const host = contexts[0].pages()[0];
+        await expect(host.locator(".lobby-player .ready-label")).toHaveCount(n);
+        const original = JSON.stringify((await read(0)).board);
+        await host.getByRole("button", { name: "Next random map →" }).click();
+        await expect
+          .poll(async () => JSON.stringify((await read(0)).board))
+          .not.toBe(original);
+        await host
+          .getByRole("button", { name: "Generate 6 maps", exact: true })
+          .click();
+        await expect(host.getByRole("dialog")).toBeVisible();
+        await expect(host.locator(".map-option")).toHaveCount(6);
+        await expect(
+          host.getByRole("dialog").getByTestId("map-neighbor-stats"),
+        ).toHaveCount(6);
+        await expect(
+          host.getByRole("dialog").getByTestId("map-neighbor-stats").first(),
+        ).toContainText("neighbors on average");
+        const contentBounds = await host
+          .locator(".map-picker .MuiDialogContent-root")
+          .boundingBox();
+        const lastChoiceBounds = await host
+          .getByRole("button", { name: "Choose map 6", exact: true })
+          .boundingBox();
+        expect(
+          lastChoiceBounds!.y + lastChoiceBounds!.height,
+        ).toBeLessThanOrEqual(contentBounds!.y + contentBounds!.height);
+        await host.screenshot({
+          path: "test-results/six-map-picker.png",
+          fullPage: false,
+        });
+        await host
+          .getByRole("button", { name: "Choose map 4", exact: true })
+          .click();
+        await expect(host.getByRole("dialog")).toHaveCount(0);
+        const picked = await read(0);
+        expect(picked.board).toEqual(
+          picked.mapChoices![picked.mapIndex!].board,
+        );
+        await expect(
+          contexts[1]
+            .pages()[0]
+            .getByRole("button", { name: "Generate 6 maps", exact: true }),
+        ).toHaveCount(0);
+      }
       await act(0, { type: "settings", settings: { reactionSeconds: 5 } });
-      await act(0, { type: "start" });
-      for (let turn = 0; turn < n * 3; turn++) {
+      state = await act(0, { type: "start" });
+      if (n === 3) {
+        const index = seats.findIndex((s) => s.id === state.priority),
+          p = contexts[index].pages()[0];
+        const own = await read(index);
+        await expect(p.locator(".hand-cards .hand-card")).toHaveCount(3);
+        await expect(
+          p.getByRole("heading", { name: /^Your hand/ }),
+        ).toContainText("3 / 3");
+        await p.locator(".hand-cards .hand-card").first().click();
+        await p.getByTestId(`tile-${own.legalDraft[0]}`).click();
+        await p.getByRole("button", { name: /^Place .* on/ }).click();
+        await expect.poll(async () => (await read(index)).draftIndex).toBe(1);
+        state = await read(0);
+      }
+      while (state.phase === "draft") {
         state = await read(0);
         const i = seats.findIndex((s) => s.id === state.priority);
         state = await read(i);
-        await act(i, { type: "draft", target: state.legalDraft[0] });
+        await act(i, {
+          type: "draft",
+          target: state.legalDraft[0],
+          card: state.hand[0].id,
+        });
       }
       for (let i = 0; i < n; i++) {
         const v = await read(i);
         expect(v.phase).toBe("playing");
-        expect(v.players.every((p) => p.territories === 3)).toBe(true);
-        expect(Object.keys(v.tiles).length).toBe(37 + v.hand.length);
+        expect(
+          v.players.every((p) => p.territories === v.board.length / n),
+        ).toBe(true);
+        expect(Object.keys(v.tiles).length).toBe(
+          v.board.length + v.hand.length,
+        );
         expect(v.forecast).toEqual(state!.forecast);
         expect(
           v.hand.every(
@@ -82,8 +150,9 @@ for (const n of [3, 4])
           ),
         ).toBe(true);
         const page = contexts[i].pages()[0];
+        await expect(page.getByText("ROUND 01", { exact: true })).toBeVisible();
         await expect(
-          page.getByText("Your hand", { exact: false }),
+          page.getByRole("heading", { name: /^Your hand/ }),
         ).toBeVisible();
       }
       const spectator = await browser.newContext();
@@ -93,7 +162,9 @@ for (const n of [3, 4])
       });
       const watchData = await watch.json();
       expect(watchData.view.hand).toEqual([]);
-      expect(Object.keys(watchData.view.tiles)).toHaveLength(37);
+      expect(Object.keys(watchData.view.tiles)).toHaveLength(
+        state.board.length,
+      );
       const projection = await spectator.newPage();
       await projection.goto("/");
       await projection.evaluate(
@@ -107,7 +178,7 @@ for (const n of [3, 4])
       await projection.goto(`/room/${code}`);
       await expect(projection.getByText("PUBLIC PROJECTION")).toBeVisible();
       await expect(
-        projection.getByText("Your hand", { exact: false }),
+        projection.getByRole("heading", { name: /^Your hand/ }),
       ).toHaveCount(0);
       state = await read(0);
       const i = seats.findIndex((s) => s.id === state.priority);
@@ -146,7 +217,9 @@ for (const n of [3, 4])
       expect(new Set(versions).size).toBe(1);
       const page = contexts[i].pages()[0];
       await page.reload();
-      await expect(page.getByText("Your hand", { exact: false })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: /^Your hand/ }),
+      ).toBeVisible();
       expect((await read(i)).me).toBe(seats[i].id);
       await page.screenshot({
         path: `test-results/${n}-player-game.png`,
@@ -179,8 +252,12 @@ test("mobile landing, practice draft, direct rules and private projector", async
   await page.getByRole("button", { name: /Learn the frontier/ }).click();
   await page.getByLabel("Commander name").fill("Solo Captain");
   await page.getByRole("button", { name: "Begin practice" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Choose your battleground." }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Begin snake draft →" }).click();
   await expect(page.getByText("THE OPENING CLAIM")).toBeVisible();
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 50; i++) {
     const pageState = await page.evaluate(() => {
       const code = location.pathname.split("/").at(-1)!;
       return JSON.parse(localStorage.getItem(`hexfront:${code}`)!);
@@ -189,16 +266,18 @@ test("mobile landing, practice draft, direct rules and private projector", async
       headers: { Authorization: `Bearer ${pageState.token}` },
     });
     let v = (await response.json()).view;
+    if (v.phase !== "draft") break;
     await ctx.request.post(`/api/rooms/${pageState.code}/action`, {
       headers: { Authorization: `Bearer ${pageState.token}` },
       data: {
         id: randomUUID(),
         version: v.version,
-        action: { type: "draft", target: v.legalDraft[0] },
+        action: { type: "draft", target: v.legalDraft[0], card: v.hand[0].id },
       },
     });
   }
-  await expect(page.getByText("Your hand", { exact: false })).toBeVisible();
+  await expect(page.getByText("ROUND 01", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Your hand/ })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

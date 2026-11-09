@@ -8,6 +8,7 @@ import {
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import { getDatabase } from "@netlify/database";
 import { Room } from "../shared/types";
@@ -38,7 +39,22 @@ export class DiskStore implements Store {
         const { room: updated, result } = fn(room);
         const temp = `${file}.${process.pid}.tmp`;
         await writeFile(temp, JSON.stringify(updated), { mode: 0o600 });
-        await rename(temp, file);
+        // Windows scanners/watchers can briefly lock a snapshot. Keep the room queue
+        // held and retry the atomic rename; never delete the last durable snapshot.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await rename(temp, file);
+            break;
+          } catch (error: any) {
+            if (
+              process.platform !== "win32" ||
+              !["EPERM", "EACCES", "EBUSY"].includes(error.code) ||
+              attempt >= 5
+            )
+              throw error;
+            await delay(20 * 2 ** attempt);
+          }
+        }
         return result;
       });
     queues.set(code, next);

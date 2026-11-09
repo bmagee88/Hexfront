@@ -8,15 +8,19 @@ const chapters = [
   ],
   [
     "The opening claim",
-    "The 37 neutral territories start with one unowned tile each. Draft three territories per player in a snake: A–B–C–D / D–C–B–A / A–B–C–D. After your first choice, claim adjacent to your land if a legal adjacent neutral remains. The shuffled player order is public. Each commander receives five basic tiles, two Food, and one Lumber.",
+    "Before play, the host cycles through random contiguous battlegrounds or generates six maps to preview and choose in a modal. There are 42 territories with two or three commanders and 44 with four, close to Risk’s 42 and divisible evenly by the player count. Every base starts EMPTY, with no numbered hex. Each commander receives three private basic tiles, two Food, and one Lumber. In public shuffled order, take snake turns (A–B–C–D / D–C–B–A / A–B–C–D, continuing). On each turn, select any tile from your own hand, place it on ANY empty base, then draw one replacement. No adjacency restriction. Repeat until every base is occupied, so everyone places the same number of tiles. Only then start round-one production and normal turns.",
   ],
   [
     "Read the board",
     "A territory is a fixed base. Its tile stack holds up to three numbered hexes. The exposed top owner controls the territory. The flat colored chip marks the exposed owner; colored layer edges identify buried owners. Every base has exactly three separate rebel sockets outside its stack. One colored peg is one rebel. Resource stock is shown on commander mats, never as map pegs.",
   ],
   [
+    "Borders and routes",
+    "Battlegrounds favor territories with three or four neighbors, with a few quieter edges and busy six-sided hubs. Their border mix is inspired by classic Risk, which averages 3.95 neighbors per territory. The host can compare actual neighbor statistics on each map preview. Every territory has at least two neighbors, the whole map is connected, and each of the six colored regions is connected. A shared hex edge is a route; empty gaps are not routes.",
+  ],
+  [
     "Forecast and turns",
-    "The active forecast resource produces for all commanders at the start of each complete round. Each matching exposed territory gives one token, up to three per commander per wave. Workshop raises that cap; Lumber Mill adds Lumber within the cap. Resources are capped at twelve total, plus three per exposed Granary. If a Granary loses its exposed power, overflow is discarded in order: Cattle, Stone, Food, Iron, Lumber. The five-slot queue draws from shuffled bags of all five types without replacement. At round end, shift left and append the next bag draw. Production is never retroactive when you reorder. A normal turn draws up to three basics within the combined seven-tile hand cap and grants three actions. Use them in any order, repeat legal actions, then end your turn.",
+    "The active forecast resource produces for all commanders at the start of each complete round. Each matching exposed territory gives one token, up to three per commander per wave. Workshop raises that cap; Lumber Mill adds Lumber within the cap. Resources are capped at twelve total, plus three per exposed Granary. If a Granary loses its exposed power, overflow is discarded in order: Cattle, Stone, Food, Iron, Lumber. The five-slot queue draws from shuffled bags of all five types without replacement. At round end, shift left and append the next bag draw. Production is never retroactive when you reorder. A normal turn draws up to three basics within the combined three-tile hand cap and grants three actions. Use them in any order, repeat legal actions, then end your turn.",
   ],
   [
     "Basic combat · scenario",
@@ -32,7 +36,7 @@ const chapters = [
   ],
   [
     "Resources and private special purchases",
-    "Bank Trade exchanges three matching resources for one chosen type, improved to two with an exposed Market Charter. Buy a Special costs one action and the chosen deck price. The draw is random and secret, and all basic and special tiles share a seven-tile hand limit. Empty decks recycle their discards. Treaty, Ceasefire, and Shield Pact are one-shots; they cannot become permanent stack layers or attack tiles.",
+    "Bank Trade exchanges three matching resources for one chosen type, improved to two with an exposed Market Charter. Buy a Special costs one action and the chosen deck price. The draw is random and secret, and all basic and special tiles share a three-tile hand limit. Empty decks recycle their discards. Treaty, Ceasefire, and Shield Pact are one-shots; they cannot become permanent stack layers or attack tiles.",
   ],
   [
     "Formal alliances and inherited support · scenario",
@@ -44,7 +48,7 @@ const chapters = [
   ],
   [
     "Coalition Threat · scenario",
-    "A formal pair controlling at least 19 of 37 territories is a Dominant Coalition. Every outsider gains +1 attack against either member and steals one extra available resource on a rebel raid there. At 18 territories or when the alliance dissolves, the threat ends immediately. Merely forming an alliance never triggers this bonus.",
+    "A formal pair controlling MORE THAN HALF the map is a Dominant Coalition: at least 22 of 42 territories or 23 of 44. Every outsider gains +1 attack against either member and steals one extra available resource on a rebel raid there. At half the map or less, or when the alliance dissolves, the threat ends immediately. Merely forming an alliance never triggers this bonus.",
   ],
   [
     "Rebel groups, raids, and uprising",

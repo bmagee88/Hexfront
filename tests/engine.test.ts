@@ -19,6 +19,7 @@ import {
   view,
 } from "../shared/engine";
 import { ABILITIES } from "../shared/cards";
+import { generateMap, territoryCount, adjacent } from "../shared/map";
 import {
   Action,
   COLORS,
@@ -44,7 +45,11 @@ function drafted(n = 3) {
     s = applyAction(
       s,
       id,
-      { type: "draft", target: legalDraft(s, id)[0] },
+      {
+        type: "draft",
+        target: legalDraft(s, id)[0],
+        card: s.players.find((p) => p.id === id)!.hand[0],
+      },
       NOW,
     );
   }
@@ -56,6 +61,15 @@ function arena() {
   s.proposal = undefined;
   s.actions = 3;
   s.settings.eliminationVictory = false;
+  // Small fixed geometry isolates combat rule fixtures from randomized campaign setup.
+  const old = s.board;
+  const fixed: TerritoryBase[] = [];
+  for (let r = -3; r <= 3; r++)
+    for (let q = -3; q <= 3; q++)
+      if (Math.abs(q + r) <= 3) {
+        fixed.push({ ...old[fixed.length], q, r });
+      }
+  s.board = fixed;
   s.players.forEach((p) => {
     p.hand = [];
     p.stock = { Lumber: 5, Iron: 5, Food: 5, Stone: 5, Cattle: 5 };
@@ -106,8 +120,8 @@ describe("setup and private snapshots", () => {
     s.players.find((p) => p.id === s.host)!.eliminated = true;
     s = doAction(s, s.host, { type: "restart" });
     expect(s.phase).toBe("draft");
-    expect(s.board).toHaveLength(37);
-    expect(s.players.every((p) => !p.eliminated && p.hand.length === 0)).toBe(
+    expect(s.board).toHaveLength(42);
+    expect(s.players.every((p) => !p.eliminated && p.hand.length === 3)).toBe(
       true,
     );
     expect(s.board.every((t) => !controller(s, t))).toBe(true);
@@ -116,19 +130,30 @@ describe("setup and private snapshots", () => {
     it(`${n} player snake is exact, territories have three sockets`, () => {
       let s = doAction(lobby(n), "p0", { type: "start" });
       const ids = s.players.map((p) => p.id);
-      expect(s.draft).toEqual([...ids, ...[...ids].reverse(), ...ids]);
-      expect(s.board).toHaveLength(37);
+      const count = territoryCount(n);
+      expect(s.draft).toEqual(
+        Array.from({ length: count / n }, (_, pass) =>
+          pass % 2 ? [...ids].reverse() : ids,
+        ).flat(),
+      );
+      expect(s.board).toHaveLength(count);
       expect(
         s.board.every(
           (t) =>
-            t.stack.length === 1 && t.rebels.length === 3 && !controller(s, t),
+            t.stack.length === 0 && t.rebels.length === 3 && !controller(s, t),
         ),
       ).toBe(true);
       while (s.phase === "draft") {
         const id = s.draft[s.draftIndex];
-        s = doAction(s, id, { type: "draft", target: legalDraft(s, id)[0] });
+        s = doAction(s, id, {
+          type: "draft",
+          target: legalDraft(s, id)[0],
+          card: s.players.find((p) => p.id === id)!.hand[0],
+        });
       }
-      expect(s.players.every((p) => owned(s, p.id).length === 3)).toBe(true);
+      expect(s.players.every((p) => owned(s, p.id).length === count / n)).toBe(
+        true,
+      );
     });
   it("basic distribution is exactly four copies of all 30 combinations; 15 of each special", () => {
     const s = doAction(lobby(), "p0", { type: "start" });
@@ -146,7 +171,7 @@ describe("setup and private snapshots", () => {
       expect(s.decks[d]).toHaveLength(15);
     expect(new Set(s.forecast).size).toBe(5);
   });
-  it("is deterministic and rejects wrong drafter and nonadjacent expansion", () => {
+  it("is deterministic and rejects a forged drafter", () => {
     const a = doAction(lobby(), "p0", { type: "start" }),
       b = doAction(lobby(), "p0", { type: "start" });
     expect(a).toEqual(b);
@@ -154,22 +179,21 @@ describe("setup and private snapshots", () => {
       doAction(a, "intruder", { type: "draft", target: "T01" }),
     ).toThrow();
     const s = drafted();
-    expect(s.players[0].hand.length).toBe(7);
-    expect(s.players.slice(1).every((p) => p.hand.length === 5)).toBe(true);
+    expect(s.players.every((p) => p.hand.length === 3)).toBe(true);
   });
   it("never sends other hands, secrets, registry of hidden cards, or deck orders", () => {
     const s = drafted(),
       p = s.players[0];
     const own = view(s, p.id, NOW),
       publicView = view(s, null, NOW);
-    expect(own.hand).toHaveLength(7);
+    expect(own.hand).toHaveLength(3);
     expect(publicView.hand).toEqual([]);
     expect("rng" in own).toBe(false);
     expect("decks" in own).toBe(false);
     expect("bag" in own).toBe(false);
     expect("processed" in own).toBe(false);
     expect(JSON.stringify(own)).not.toContain("tokenHash");
-    expect(Object.keys(publicView.tiles)).toHaveLength(37);
+    expect(Object.keys(publicView.tiles)).toHaveLength(s.board.length);
     for (const x of s.players.slice(1))
       for (const id of x.hand) expect(own.tiles[id]).toBeUndefined();
   });
@@ -187,6 +211,56 @@ describe("setup and private snapshots", () => {
   });
 });
 describe("card registry and resource timing", () => {
+  it("caps combined basic/special hands at three for purchases, scouting and reorganizing", () => {
+    const { s, actor } = arena();
+    const p = s.players.find((p) => p.id === actor)!;
+    const basic = card(s, actor, 2);
+    card(s, actor, 3, "Fortress");
+    card(s, actor, 4);
+    expect(() =>
+      doAction(s, actor, { type: "buy", target: "Infrastructure" }),
+    ).toThrow("Hand is full");
+    expect(() => doAction(s, actor, { type: "scout" })).toThrow("Hand is full");
+    expect(p.hand).toHaveLength(3);
+    const deckSize = s.decks.basic.length;
+    const reorganized = doAction(s, actor, { type: "reorganize", card: basic });
+    expect(reorganized.players.find((p) => p.id === actor)!.hand).toHaveLength(
+      3,
+    );
+    expect(reorganized.decks.basic).toHaveLength(deckSize - 1);
+    const discarded = doAction(s, actor, { type: "discard", card: basic });
+    expect(discarded.actions).toBe(s.actions);
+    const scouted = doAction(discarded, actor, { type: "scout" });
+    expect(scouted.players.find((p) => p.id === actor)!.hand).toHaveLength(3);
+    expect(scouted.decks.basic).toHaveLength(deckSize - 1);
+    const bought = doAction(discarded, actor, {
+      type: "buy",
+      target: "Infrastructure",
+    });
+    expect(bought.players.find((p) => p.id === actor)!.hand).toHaveLength(3);
+  });
+  it("lets existing oversized hands choose free discards even outside their draft turn", () => {
+    let s = doAction(lobby(), "p0", { type: "start" });
+    const p = s.players.find((p) => p.id !== s.draft[0])!;
+    const keep = p.hand.slice();
+    p.hand.push(s.decks.basic.pop()!, s.decks.basic.pop()!);
+    const extras = p.hand.slice(3);
+    for (const id of extras)
+      s = doAction(s, p.id, { type: "discard", card: id });
+    expect(s.players.find((x) => x.id === p.id)!.hand).toEqual(keep);
+    expect(s.discards.basic).toEqual(expect.arrayContaining(extras));
+    expect(s.draftIndex).toBe(0);
+    expect(s.actions).toBe(0);
+    const active = s.players.find((x) => x.id === s.draft[0])!;
+    active.hand.push(s.decks.basic.pop()!);
+    expect(() =>
+      doAction(s, active.id, {
+        type: "draft",
+        target: legalDraft(s, active.id)[0],
+        card: active.hand[0],
+      }),
+    ).toThrow("Discard down to 3");
+  });
   function wave(s: Room) {
     s.turn = s.players.length - 1;
     return doAction(s, s.players[s.turn].id, { type: "end" });
@@ -420,7 +494,11 @@ describe("card registry and resource timing", () => {
       two = doAction(b, "p0", { type: "start" });
     while (one.phase === "draft") {
       const actor = one.draft[one.draftIndex],
-        action = { type: "draft", target: legalDraft(one, actor)[0] };
+        action = {
+          type: "draft",
+          target: legalDraft(one, actor)[0],
+          card: one.players.find((p) => p.id === actor)!.hand[0],
+        };
       one = doAction(one, actor, action);
       two = doAction(two, actor, action);
     }
@@ -450,6 +528,18 @@ describe("card registry and resource timing", () => {
     expect(s.phase, `Round ${s.round}, ${commands} commands`).toBe("finished");
     expect(s.winner).toBeDefined();
   }, 20000);
+  it("automatons trade toward a deck that still has cards when infrastructure is exhausted", () => {
+    const s = drafted();
+    const p = s.players[s.turn];
+    s.decks.Infrastructure = [];
+    s.discards.Infrastructure = [];
+    p.stock = { Food: 6, Stone: 1, Lumber: 1, Iron: 0, Cattle: 1 };
+    expect(botAction(s, p)).toEqual({
+      type: "bank",
+      give: "Food",
+      resource: "Iron",
+    });
+  });
 });
 describe("combat and ownership", () => {
   it("ties defend and the source never moves", () => {

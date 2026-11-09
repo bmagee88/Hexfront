@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { generateMap } from "../shared/map";
 import {
   NumberedHex,
   PublicPlayer,
@@ -43,31 +44,49 @@ export function Board({
   onSelect?: (id: string) => void;
   decorative?: boolean;
 }) {
+  const uid = useId().replace(/:/g, "");
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const positions = board.map((t) => ({
+    x: Math.sqrt(3) * 43 * (t.q + t.r / 2),
+    y: 43 * 1.5 * t.r,
+  }));
+  const minX = Math.min(0, ...positions.map((p) => p.x)) - 55,
+    maxX = Math.max(0, ...positions.map((p) => p.x)) + 55,
+    minY = Math.min(0, ...positions.map((p) => p.y)) - 55,
+    maxY = Math.max(0, ...positions.map((p) => p.y)) + 55;
+  const width = maxX - minX,
+    height = maxY - minY,
+    cx = (minX + maxX) / 2,
+    cy = (minY + maxY) / 2;
   return (
     <div className={`board-shell ${decorative ? "decorative" : ""}`}>
       <svg
         className="hex-board"
-        viewBox={`${-330 / zoom + pan.x} ${-295 / zoom + pan.y} ${660 / zoom} ${590 / zoom}`}
-        aria-label="37-territory frontier map"
+        viewBox={`${cx - width / zoom / 2 + pan.x} ${cy - height / zoom / 2 + pan.y} ${width / zoom} ${height / zoom}`}
+        aria-label={`${board.length}-territory frontier map`}
       >
         <defs>
-          <filter id="shadow">
+          <filter id={`${uid}-shadow`}>
             <feDropShadow dx="0" dy="4" stdDeviation="3" floodOpacity=".28" />
           </filter>
-          <radialGradient id="boardglow">
+          <radialGradient id={`${uid}-boardglow`}>
             <stop offset="0" stopColor="#273e42" />
             <stop offset="1" stopColor="#142329" />
           </radialGradient>
         </defs>
-        <circle cx="0" cy="0" r="290" fill="url(#boardglow)" opacity=".4" />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={Math.max(width, height) / 2}
+          fill={`url(#${uid}-boardglow)`}
+          opacity=".4"
+        />
         {board.map((t) => {
           const x = Math.sqrt(3) * 43 * (t.q + t.r / 2),
             y = 43 * 1.5 * t.r;
           const c = tiles[t.stack[t.stack.length - 1]];
-          if (!c) return null;
-          const owner = players.find((p) => p.id === c.owner);
+          const owner = players.find((p) => p.id === c?.owner);
           const active = selected === t.id,
             allowed = legal.includes(t.id);
           return (
@@ -75,7 +94,7 @@ export function Board({
               key={t.id}
               role={decorative ? undefined : "button"}
               tabIndex={decorative ? -1 : 0}
-              aria-label={`${t.id}, ${c.resource} ${c.value}, ${owner?.name || "neutral"}, ${t.stack.length} layers${allowed ? ", legal target" : ""}`}
+              aria-label={`${t.id}, ${c ? `${c.resource} ${c.value}, ${owner?.name || "neutral"}, ${t.stack.length} layers` : "empty territory"}${allowed ? ", legal target" : ""}`}
               data-testid={`tile-${t.id}`}
               onClick={() => onSelect(t.id)}
               onKeyDown={(e) => {
@@ -87,10 +106,21 @@ export function Board({
               className={`territory ${active ? "selected" : ""} ${allowed ? "legal" : ""}`}
               style={{ cursor: decorative ? "default" : "pointer" }}
             >
-              <title>{`${t.id} · Region ${t.region + 1} · ${owner?.name || "Neutral"} · ${c.ability || c.resource}`}</title>
+              <title>{`${t.id} · Region ${t.region + 1} · ${c ? `${owner?.name || "Neutral"} · ${c.ability || c.resource}` : "Empty — place a hex from your hand"}`}</title>
               <polygon
                 points={hex(x, y + 3, 42)}
-                fill="#0c1519"
+                fill={
+                  c
+                    ? "#0c1519"
+                    : [
+                        "#172e2d",
+                        "#202c37",
+                        "#302a35",
+                        "#302e22",
+                        "#302724",
+                        "#222e29",
+                      ][t.region % 6]
+                }
                 stroke={
                   active
                     ? "#f3d699"
@@ -98,57 +128,85 @@ export function Board({
                       ? "#dabc81"
                       : source === t.id
                         ? "#fff"
-                        : "#31474d"
+                        : c
+                          ? "#31474d"
+                          : "#52716b"
                 }
                 strokeWidth={active || allowed ? 2.5 : 1}
               />
-              {t.stack.slice(0, -1).map((id, i) => (
-                <polygon
-                  key={id}
-                  points={hex(x, y - i * 3, 34)}
-                  fill="#29393c"
-                  stroke={
-                    players.find((p) => p.id === tiles[id].owner)?.color ||
-                    "#6b7678"
-                  }
-                  strokeWidth="2"
-                />
-              ))}
-              <polygon
-                points={hex(x, y - (t.stack.length - 1) * 3 - 3, 34)}
-                fill={owner ? `${owner.color}20` : "#26373b"}
-                stroke={RESOURCE_COLOR[c.resource]}
-                strokeWidth="2"
-                filter="url(#shadow)"
-              />
-              <text
-                x={x}
-                y={y - 2 - (t.stack.length - 1) * 3}
-                textAnchor="middle"
-                fill={owner ? "#f3eee4" : "#b7c6c4"}
-                fontSize="24"
-                fontWeight="600"
-              >
-                {c.value}
-              </text>
-              <text
-                x={x}
-                y={y + 13 - (t.stack.length - 1) * 3}
-                textAnchor="middle"
-                fontSize="8"
-                fill={RESOURCE_COLOR[c.resource]}
-                letterSpacing=".5"
-              >
-                {c.resource.toUpperCase()}
-              </text>
-              <circle
-                cx={x + 21}
-                cy={y - 19 - (t.stack.length - 1) * 3}
-                r="5"
-                fill={owner?.color || "#1b292c"}
-                stroke={owner ? "#ffffff60" : "#5f7377"}
-                strokeWidth="1"
-              />
+              {c && (
+                <>
+                  {t.stack.slice(0, -1).map((id, i) => (
+                    <polygon
+                      key={id}
+                      points={hex(x, y - i * 3, 34)}
+                      fill="#29393c"
+                      stroke={
+                        players.find((p) => p.id === tiles[id].owner)?.color ||
+                        "#6b7678"
+                      }
+                      strokeWidth="2"
+                    />
+                  ))}
+                  <polygon
+                    points={hex(x, y - (t.stack.length - 1) * 3 - 3, 34)}
+                    fill={owner ? `${owner.color}20` : "#26373b"}
+                    stroke={RESOURCE_COLOR[c.resource]}
+                    strokeWidth="2"
+                    filter={`url(#${uid}-shadow)`}
+                  />
+                  <text
+                    x={x}
+                    y={y - 2 - (t.stack.length - 1) * 3}
+                    textAnchor="middle"
+                    fill={owner ? "#f3eee4" : "#b7c6c4"}
+                    fontSize="24"
+                    fontWeight="600"
+                  >
+                    {c.value}
+                  </text>
+                  <text
+                    x={x}
+                    y={y + 13 - (t.stack.length - 1) * 3}
+                    textAnchor="middle"
+                    fontSize="8"
+                    fill={RESOURCE_COLOR[c.resource]}
+                    letterSpacing=".5"
+                  >
+                    {c.resource.toUpperCase()}
+                  </text>
+                  <circle
+                    cx={x + 21}
+                    cy={y - 19 - (t.stack.length - 1) * 3}
+                    r="5"
+                    fill={owner?.color || "#1b292c"}
+                    stroke={owner ? "#ffffff60" : "#5f7377"}
+                    strokeWidth="1"
+                  />
+                </>
+              )}
+              {!c && (
+                <>
+                  <text
+                    x={x}
+                    y={y}
+                    textAnchor="middle"
+                    fill="#8ca19b"
+                    fontSize="12"
+                  >
+                    {t.id}
+                  </text>
+                  <text
+                    x={x}
+                    y={y + 14}
+                    textAnchor="middle"
+                    fill="#627c74"
+                    fontSize="7"
+                  >
+                    EMPTY
+                  </text>
+                </>
+              )}
               {t.rebels.map((peg, i) => (
                 <circle
                   key={i}
@@ -167,14 +225,16 @@ export function Board({
               <text x={x - 25} y={y - 24} fill="#849b9d" fontSize="6">
                 {t.id.slice(1)}
               </text>
-              {c.ability && (
+              {c?.ability && (
                 <text x={x - 23} y={y + 8} fill="#e1c891" fontSize="10">
                   ✧
                 </text>
               )}
               {(t.ceasefire ||
                 t.patrol ||
-                ["Border Fort", "Blockade Unit"].includes(c.ability || "")) && (
+                ["Border Fort", "Blockade Unit"].includes(
+                  c?.ability || "",
+                )) && (
                 <text x={x + 21} y={y + 17} fontSize="10" fill="#e1c891">
                   {t.ceasefire ? "☮" : "⊘"}
                 </text>
@@ -261,32 +321,22 @@ export function Card({
   );
 }
 export function previewBoard() {
-  const board: TerritoryBase[] = [],
+  const board = generateMap(42, "home-frontier"),
     tiles: Record<string, NumberedHex> = {};
-  let i = 0;
   const resources = Object.keys(RESOURCE_COLOR);
-  for (let r = -3; r <= 3; r++)
-    for (let q = -3; q <= 3; q++)
-      if (Math.abs(q + r) <= 3) {
-        const id = `T${++i}`,
-          card = `c${i}`;
-        board.push({
-          id,
-          q,
-          r,
-          region: 0,
-          stack: [card],
-          rebels: [null, null, null],
-        });
-        tiles[card] = {
-          id: card,
-          value: ((i * 7) % 6) + 1,
-          resource: resources[
-            (i * 3 + Math.abs(q)) % 5
-          ] as NumberedHex["resource"],
-          deck: "basic",
-          owner: i % 6 === 0 ? "demo" : null,
-        };
-      }
+  board.forEach((t, index) => {
+    const i = index + 1,
+      card = `c${i}`;
+    t.stack = [card];
+    tiles[card] = {
+      id: card,
+      value: ((i * 7) % 6) + 1,
+      resource: resources[
+        (i * 3 + Math.abs(t.q)) % 5
+      ] as NumberedHex["resource"],
+      deck: "basic",
+      owner: i % 6 === 0 ? "demo" : null,
+    };
+  });
   return { board, tiles };
 }

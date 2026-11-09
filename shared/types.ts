@@ -1,4 +1,5 @@
 export const RESOURCES = ["Lumber", "Iron", "Food", "Stone", "Cattle"] as const;
+export const HAND_LIMIT = 3;
 export type Resource = (typeof RESOURCES)[number];
 export const COLORS = ["#e77e61", "#61b9c7", "#c4a5e4", "#e4bf64"] as const;
 export type Deck = "basic" | "Infrastructure" | "Weapons Tech" | "Diplomacy";
@@ -40,6 +41,11 @@ export interface TerritoryBase {
   patrol?: { owner: string; expires: number };
 }
 export type Stock = Record<Resource, number>;
+export interface MapConfiguration {
+  id: string;
+  seed: string;
+  board: TerritoryBase[];
+}
 export interface Player {
   id: string;
   name: string;
@@ -122,6 +128,10 @@ export interface Room {
   history: { actor: string; action: Action; at: number }[];
   players: Player[];
   board: TerritoryBase[];
+  mapChoices?: MapConfiguration[];
+  mapIndex?: number;
+  mapGeneration?: number;
+  mapAlgorithm?: number;
   tiles: Record<string, NumberedHex>;
   decks: Record<Deck, string[]>;
   discards: Record<Deck, string[]>;
@@ -179,6 +189,8 @@ export interface RoomView extends Omit<
 }
 export type Action = {
   type: string;
+  mapCount?: 1 | 6;
+  mapIndex?: number;
   target?: string;
   source?: string;
   card?: string;

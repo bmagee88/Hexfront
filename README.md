@@ -13,7 +13,11 @@ npm run dev
 
 Open http://127.0.0.1:5173. This single command starts Vite and the authoritative API on port 4007. Local rooms are stored as atomic snapshots under ignored `data/`. Restarting the server preserves seats, hands, turns, and reactions. Use separate browser profiles or private windows for separate commanders; a browser profile retains one reconnect key per room.
 
-Create a room, share the code, ready two to four commanders, and begin the snake draft. The host may spectate or add bots. Solo practice starts a two-player campaign against a server-operated automaton. Use the in-app Field Manual for rules and examples. Mobile has Board, Orders, and private Hand navigation.
+Create a room, share the code, and ready two to four commanders. The host cycles random contiguous maps or previews six in a modal and chooses one. Use 42 territories with two/three commanders or 44 with four; both counts divide evenly. All bases start empty. Deal three basics each, then take snake turns placing any hand tile anywhere empty and drawing one replacement. Fill the entire board before round-one production and normal turns. The host may spectate or add bots. Solo practice starts a two-player campaign against a server-operated automaton. Use the in-app Field Manual for rules and examples. Mobile has Board, Orders, and private Hand navigation.
+
+## Map generation
+
+Map generation scores the full classic Risk neighbor distribution (2/3/4/5/6 neighbors: 4/13/13/5/7 territories; average 3.95), scaled for 44 bases. Seeded randomized growth and boundary relocation favor 3–4 neighbors and fewer fully surrounded hexes while keeping the board and all six regions connected. Each lobby preview shows its actual neighbor statistics. Existing lobbies adopt the new generator; active campaigns retain their boards.
 
 ## Routes
 
@@ -62,7 +66,7 @@ Production room operations use Postgres transactions, a room-scoped advisory loc
 
 Reconnect tokens are 256-bit random bearer keys whose SHA-256 hashes are stored server-side. Only a player's own hand is serialized. Spectators receive no private cards, deck order, RNG state, tokens, or pending private command transcript. Server-generated 256-bit entropy is mixed with the host seed through a SHA-256 counter RNG. The public seed alone cannot reconstruct secret draws. Entropy and the private command transcript remain server-side even after victory. Public downloads contain the host seed and basic public log, so spectators cannot reconstruct unseen cards. Rematches rotate entropy. Authorized server operators can audit private snapshots; players and public hosts receive no such access.
 
-Anonymous room names are bounded strings rendered through React text escaping. Requests use strict Zod schemas, bounded payloads, room-code validation, and per-process rate limits (250 requests/IP/minute, 12 creates/IP/minute, 100 orders/seat/minute). These counters are best-effort per Function instance; use Netlify traffic controls if stronger global abuse protection is needed. API responses are `no-store`. Rooms expire after 24 hours without requests; room creation removes expired database records, and local mode also performs hourly cleanup.
+Anonymous room names are bounded strings rendered through React text escaping. Requests use strict Zod schemas, bounded payloads, room-code validation, and per-process rate limits (1,200 requests/IP/minute, 12 creates/IP/minute, 100 orders/seat/minute). These counters are best-effort per Function instance; use Netlify traffic controls if stronger global abuse protection is needed. API responses are `no-store`. Rooms expire after 24 hours without requests; room creation removes expired database records, and local mode also performs hourly cleanup.
 
 ## Validation
 

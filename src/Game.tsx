@@ -16,6 +16,7 @@ import {
   Action,
   COLORS,
   Deck,
+  HAND_LIMIT,
   NumberedHex,
   RESOURCES,
   Resource,
@@ -24,6 +25,7 @@ import {
 } from "../shared/types";
 import { ABILITIES, PRICES, ONE_SHOT } from "../shared/cards";
 import { adjacent } from "../shared/map";
+import LobbyMaps from "./LobbyMaps";
 import {
   Board,
   Card,
@@ -67,7 +69,7 @@ const hints: Record<string, string> = {
     "Select a friendly source with 2+ layers, then adjacent friendly destination.",
   reorder:
     "Select your territory, then choose the new exposed tile. Foreign support stays below.",
-  scout: "Draw up to two basics. Your combined hand limit is seven.",
+  scout: "Draw up to two basics. Your combined hand limit is three.",
   buy: "Choose a deck. Your purchase is drawn randomly and privately.",
   bank: "Trade matching resources for one chosen resource. Market Charter improves the rate.",
   trade:
@@ -162,6 +164,7 @@ export default function Game() {
         setSource("");
         setSelected("");
       }
+      return result.view as RoomView;
     } catch (e: any) {
       setError(e.message);
       await refresh();
@@ -190,6 +193,7 @@ export default function Game() {
     host = me?.id === v?.host;
   useEffect(() => {
     if (
+      v?.phase === "playing" &&
       me?.territories === 0 &&
       ![
         "underground",
@@ -202,7 +206,7 @@ export default function Game() {
       ].includes(mode)
     )
       setMode("underground");
-  }, [me?.territories, mode]);
+  }, [me?.territories, mode, v?.phase]);
   const tile = v?.board.find((t) => t.id === selected),
     from = v?.board.find((t) => t.id === source),
     hand = v?.hand.find((c) => c.id === card);
@@ -214,7 +218,8 @@ export default function Game() {
       a.members.reduce(
         (n, id) => n + (v.players.find((p) => p.id === id)?.territories || 0),
         0,
-      ) >= 19,
+      ) >
+      (v?.board.length || 0) / 2,
   );
   const all = v?.board || [];
   const legal =
@@ -668,16 +673,14 @@ export default function Game() {
                 label="Last commander standing can win"
               />
               <p className="muted small">
-                Canonical rules · 37 territories · 3 layers · 3 rebel sockets ·
+                {v.board.length} territories · 3 layers · 3 rebel sockets ·
                 First to hold 8 VP across two consecutive round ends wins.
               </p>
               <p className="muted small">
                 Optional experimental variants are not enabled in this release.
               </p>
             </section>
-            <section className="panel lobby-map">
-              <Board {...preview} decorative />
-            </section>
+            <LobbyMaps room={v} host={host} busy={busy} onSend={send} />
           </div>
         </main>
       ) : (
@@ -784,9 +787,11 @@ export default function Game() {
                           <span>
                             {v.alliances.some((a) => a.members.includes(p.id))
                               ? "Formally allied"
-                              : p.territories
-                                ? "Sovereign +2 VP"
-                                : "Rebel mode"}
+                              : v.phase === "draft"
+                                ? "Opening deployment"
+                                : p.territories
+                                  ? "Sovereign +2 VP"
+                                  : "Rebel mode"}
                           </span>
                           <span>{p.online ? "● Online" : "○ Away"}</span>
                         </>
@@ -863,22 +868,41 @@ export default function Game() {
                       : "Watch the opening unfold."}
                   </b>
                   <span>
-                    Three claims each. After your first, expand adjacent when
-                    possible.
+                    Place a hand hex anywhere empty, then draw one replacement.
+                    Fill all {v.board.length} territories.
                   </span>
                   <div className="draft-order">
-                    {v.draft.map((id, i) => (
-                      <span
-                        key={i}
-                        className={i === v.draftIndex ? "current" : ""}
-                        style={{
-                          color: v.players.find((p) => p.id === id)?.color,
-                        }}
-                      >
-                        {v.players.find((p) => p.id === id)?.name}
-                        {i < v.draft.length - 1 ? " → " : ""}
-                      </span>
-                    ))}
+                    {v.draft
+                      .slice(
+                        Math.floor(
+                          v.draftIndex /
+                            v.players.filter((p) => !p.spectator).length,
+                        ) * v.players.filter((p) => !p.spectator).length,
+                        Math.floor(
+                          v.draftIndex /
+                            v.players.filter((p) => !p.spectator).length,
+                        ) *
+                          v.players.filter((p) => !p.spectator).length +
+                          v.players.filter((p) => !p.spectator).length,
+                      )
+                      .map((id, i) => (
+                        <span
+                          key={i}
+                          className={
+                            i ===
+                            v.draftIndex %
+                              v.players.filter((p) => !p.spectator).length
+                              ? "current"
+                              : ""
+                          }
+                          style={{
+                            color: v.players.find((p) => p.id === id)?.color,
+                          }}
+                        >
+                          {v.players.find((p) => p.id === id)?.name}
+                          {i < v.draft.length - 1 ? " → " : ""}
+                        </span>
+                      ))}
                   </div>
                 </div>
               )}
@@ -1093,7 +1117,9 @@ export default function Game() {
                           v.draftIndex /
                             v.players.filter((p) => !p.spectator).length,
                         ) + 1}{" "}
-                        OF 3
+                        OF{" "}
+                        {v.board.length /
+                          v.players.filter((p) => !p.spectator).length}
                       </div>
                       <h2>
                         {mine
@@ -1101,20 +1127,25 @@ export default function Game() {
                           : `${priority?.name} is choosing.`}
                       </h2>
                       <p className="muted">
-                        Select a highlighted neutral territory. Its existing
-                        tile becomes yours.
+                        Select a hex from your private hand and any empty
+                        territory. You draw one replacement after placing it.
                       </p>
                       <Button
                         variant="contained"
                         fullWidth
                         disabled={
-                          busy || !mine || !v.legalDraft.includes(selected)
+                          busy ||
+                          v.paused ||
+                          !mine ||
+                          !v.legalDraft.includes(selected) ||
+                          !hand
                         }
                         onClick={() =>
-                          send({ type: "draft", target: selected })
+                          send({ type: "draft", target: selected, card })
                         }
                       >
-                        Claim {selected || "territory"} →
+                        Place {hand ? `${hand.value} ${hand.resource}` : "hex"}{" "}
+                        on {selected || "territory"} →
                       </Button>
                     </div>
                   ) : me?.spectator || me?.eliminated ? (
@@ -1463,13 +1494,16 @@ export default function Game() {
               )}
             </aside>
           </div>
-          {me && !me.spectator && !me.eliminated && v.phase !== "draft" && (
+          {me && !me.spectator && !me.eliminated && (
             <section className="hand-panel">
               <div className="hand-heading">
                 <div>
                   <div className="eyebrow">PRIVATE INTELLIGENCE</div>
                   <h2>
-                    Your hand <span>{v.hand.length} / 7</span>
+                    Your hand{" "}
+                    <span>
+                      {v.hand.length} / {HAND_LIMIT}
+                    </span>
                   </h2>
                 </div>
                 <p className="small muted">
@@ -1491,6 +1525,24 @@ export default function Game() {
                   </p>
                 )}
               </div>
+              {v.hand.length > HAND_LIMIT && (
+                <Alert
+                  severity="warning"
+                  action={
+                    <Button
+                      disabled={busy || v.paused || !card}
+                      onClick={() => send({ type: "discard", card })}
+                    >
+                      Discard selected tile
+                    </Button>
+                  }
+                >
+                  The hand limit is now {HAND_LIMIT}. Choose{" "}
+                  {v.hand.length - HAND_LIMIT} tile
+                  {v.hand.length - HAND_LIMIT === 1 ? "" : "s"} to discard
+                  before continuing.
+                </Alert>
+              )}
               {hand?.ability && (
                 <p className="card-explainer">
                   <b>{hand.ability}</b> · {ABILITIES[hand.ability].trigger} ·{" "}
@@ -1501,15 +1553,18 @@ export default function Game() {
           )}
         </main>
       )}
-      {v.phase === "playing" && me && !me.spectator && !me.eliminated && (
-        <nav className="mobile-dock" aria-label="Game navigation">
-          <a href="#frontier-map">⌁ Board</a>
-          <a href="#frontier-orders">⚔ Orders</a>
-          <button onClick={() => setHandOpen(true)}>
-            ▱ Hand · {v.hand.length}/7
-          </button>
-        </nav>
-      )}
+      {["playing", "draft"].includes(v.phase) &&
+        me &&
+        !me.spectator &&
+        !me.eliminated && (
+          <nav className="mobile-dock" aria-label="Game navigation">
+            <a href="#frontier-map">⌁ Board</a>
+            <a href="#frontier-orders">⚔ Orders</a>
+            <button onClick={() => setHandOpen(true)}>
+              ▱ Hand · {v.hand.length}/{HAND_LIMIT}
+            </button>
+          </nav>
+        )}
       <Dialog
         open={handOpen}
         onClose={() => setHandOpen(false)}

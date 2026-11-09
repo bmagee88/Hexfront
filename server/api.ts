@@ -5,6 +5,7 @@ import {
   applyAction,
   botAction,
   createRoom,
+  ensureLobbyMap,
   tick,
   view,
 } from "../shared/engine";
@@ -24,6 +25,8 @@ const action = z
       "profile",
       "ready",
       "settings",
+      "generateMaps",
+      "chooseMap",
       "addBot",
       "remove",
       "start",
@@ -59,6 +62,8 @@ const action = z
       "suppress",
     ]),
     target: z.string().max(100).optional(),
+    mapCount: z.union([z.literal(1), z.literal(6)]).optional(),
+    mapIndex: z.number().int().min(0).max(23).optional(),
     source: z.string().max(100).optional(),
     card: z.string().max(100).optional(),
     player: z.string().max(100).optional(),
@@ -162,7 +167,7 @@ export async function handleApi(
         service: "hexfront",
         transport: "versioned-polling",
       });
-    rate(ip, now, 250);
+    rate(ip, now, 1200);
     if (!["GET", "POST"].includes(req.method))
       return json({ error: "Method not allowed." }, 405);
     let body: unknown;
@@ -197,8 +202,6 @@ export async function handleApi(
         if (data.practice) {
           addPlayer(s, "bot-1", "The Cartographer", "", now, undefined, true);
           s.players[0].ready = true;
-          s = applyAction(s, id, { type: "start" }, now);
-          s = bots(s, now);
         }
         return {
           room: s,
@@ -217,6 +220,7 @@ export async function handleApi(
           status: 404,
         });
       let s = existing;
+      if (ensureLobbyMap(s)) s.version++;
       tick(s, now);
       if (parts[3] === "join" && req.method === "POST") {
         const data = join.parse(body);
