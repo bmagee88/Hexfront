@@ -1,16 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { DiskStore } from "../server/store";
+import { MemoryStore } from "../server/store";
 import { handleApi } from "../server/api";
 import { RoomView } from "../shared/types";
-describe("authenticated atomic API and durable reconnect", () => {
-  it("persists snapshots, rejects forged tokens, stale/forged actions, and deduplicates concurrent submissions", async () => {
-    const folder = await mkdtemp(path.join(tmpdir(), "hexfront-test-"));
-    try {
-      const store = new DiskStore(folder);
+describe("authenticated atomic API and temporary reconnect", () => {
+  it("retains live snapshots, rejects forged tokens, stale/forged actions, and deduplicates concurrent submissions", async () => {
+    {
+      const store = new MemoryStore();
       let serial = 0;
       const call = async (url: string, body?: unknown, token?: string) =>
         handleApi(
@@ -81,24 +77,20 @@ describe("authenticated atomic API and durable reconnect", () => {
         token,
       );
       expect(injection.status).toBe(400);
-      const reconnectStore = new DiskStore(folder);
       const restored = await handleApi(
         new Request(`http://localhost/api/rooms/${code}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        reconnectStore,
+        store,
         "restore",
       );
       expect(restored.status).toBe(200);
       expect((await restored.json()).view.me).toBe(created.view.me);
-    } finally {
-      await rm(folder, { recursive: true, force: true });
     }
   });
   it("validates colors, names, payloads and never accepts client-declared identity", async () => {
-    const folder = await mkdtemp(path.join(tmpdir(), "hexfront-validation-"));
-    try {
-      const store = new DiskStore(folder);
+    {
+      const store = new MemoryStore();
       const req = (body: unknown) =>
         handleApi(
           new Request("http://localhost/api/rooms", {
@@ -111,8 +103,6 @@ describe("authenticated atomic API and durable reconnect", () => {
       expect((await req({ name: "" })).status).toBe(400);
       expect((await req({ name: "X", color: "red" })).status).toBe(400);
       expect((await req({ name: "X", tokenHash: "forge" })).status).toBe(400);
-    } finally {
-      await rm(folder, { recursive: true, force: true });
     }
   });
 });

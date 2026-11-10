@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: hexfront-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    numInstances: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 22.18.0
+      - key: ALLOWED_ORIGIN
+        sync: false

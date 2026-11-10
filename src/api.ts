@@ -1,4 +1,5 @@
 import { Action, RoomView } from "../shared/types";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 export interface Session {
   code: string;
   token: string;
@@ -18,7 +19,7 @@ export async function request(
   body?: unknown,
   token?: string,
 ): Promise<any> {
-  const result = await fetch(`/api${path}`, {
+  const result = await fetch(`${API_BASE}/api${path}`, {
     method: body ? "POST" : "GET",
     headers: {
       ...(body ? { "Content-Type": "application/json" } : {}),

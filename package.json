@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx server/dev.ts",
     "build": "tsc --noEmit && vite build",
-    "start": "tsx server/dev.ts",
+    "start": "tsx server/start.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "preview": "vite preview"
@@ -16,9 +16,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@mui/material": "^6.4.6",
-    "@netlify/database": "latest",
     "express": "^5.1.0",
-    "pg": "^8.16.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.2.0",
@@ -28,7 +26,6 @@
     "@playwright/test": "latest",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "@types/pg": "^8.15.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.4.1",

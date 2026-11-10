@@ -10,7 +10,7 @@ import {
   view,
 } from "../shared/engine";
 import { COLORS, RESOURCES, Room } from "../shared/types";
-import { Store } from "./store";
+import { Store, ROOM_IDLE_TIMEOUT_MS } from "./store";
 const settings = z
   .object({
     seed: z.string().min(1).max(64).optional(),
@@ -151,6 +151,10 @@ export async function handleApi(
     "Content-Type": "application/json",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
+    "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    Vary: "Origin",
   };
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), { status, headers });
@@ -161,11 +165,15 @@ export async function handleApi(
       req.headers.get("origin") !== process.env.ALLOWED_ORIGIN
     )
       return json({ error: "Origin not allowed." }, 403);
+    if (req.method === "OPTIONS")
+      return new Response(null, { status: 204, headers });
     if (req.method === "GET" && pathname === "/api/health")
       return json({
         ok: true,
         service: "hexfront",
         transport: "versioned-polling",
+        storage: "temporary-memory",
+        idleTimeoutSeconds: ROOM_IDLE_TIMEOUT_MS / 1000,
       });
     rate(ip, now, 1200);
     if (!["GET", "POST"].includes(req.method))
@@ -215,7 +223,7 @@ export async function handleApi(
     const token =
       req.headers.get("authorization")?.replace(/^Bearer /, "") || "";
     return await store.transaction(code, (existing) => {
-      if (!existing || now - existing.updated > 86400000)
+      if (!existing || now - existing.updated >= ROOM_IDLE_TIMEOUT_MS)
         throw Object.assign(new Error("Room not found or expired."), {
           status: 404,
         });
@@ -255,11 +263,13 @@ export async function handleApi(
       if (req.method === "POST" && parts[3] === "action") {
         const data = envelope.parse(body);
         rate(`action:${p.id}`, now, 100);
-        if (s.processed[`${p.id}:${data.id}`] !== undefined)
+        if (s.processed[`${p.id}:${data.id}`] !== undefined) {
+          s.updated = now;
           return {
             room: s,
             result: json({ view: view(s, p.id, now), duplicate: true }),
           };
+        }
         if (data.version !== s.version)
           throw Object.assign(
             new Error("The room changed. Review the updated board and retry."),

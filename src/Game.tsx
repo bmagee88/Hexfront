@@ -138,8 +138,12 @@ export default function Game() {
   }, [code, sess]);
   useEffect(() => {
     refresh();
+    let lastPoll = Date.now();
     const t = setInterval(() => {
-      if (!document.hidden) refresh();
+      if (!document.hidden || Date.now() - lastPoll >= 30000) {
+        lastPoll = Date.now();
+        refresh();
+      }
     }, 1200);
     return () => clearInterval(t);
   }, [refresh]);
