@@ -72,7 +72,7 @@ const chapters = [
   ],
   [
     "Host controls, privacy, and reconnect",
-    "The host manages lobby settings and can pause/resume. Everyone’s actions are validated by the server. A spectator receives the public board, never private hands or deck order. The client refreshes versioned snapshots approximately once per second. Orders include a unique id and expected version; stale orders must be reviewed and resubmitted. Rooms stay in temporary backend memory. They expire after one hour without connected-player activity and are cleared when the backend restarts. Download the public campaign log after play. The host seed is mixed with secret server entropy so it cannot predict private draws. Secret entropy, deck order and private command history stay on the server even after victory; public downloads include only the host seed and public log.",
+    "The host manages lobby settings and can pause/resume. Everyone’s actions are validated by the server. A spectator receives the public board, never private hands or deck order. The client refreshes versioned snapshots approximately once per second. Orders include a unique id and expected version; stale orders must be reviewed and resubmitted. Rooms use temporary backend storage on Netlify. They expire after one hour without connected-player activity and are then automatically deleted. Download the public campaign log after play. The host seed is mixed with secret server entropy so it cannot predict private draws. Secret entropy, deck order and private command history stay on the server even after victory; public downloads include only the host seed and public log.",
   ],
   [
     "Playtest boundaries",

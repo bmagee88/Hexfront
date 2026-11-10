@@ -1,48 +1,47 @@
 # Hexfront Command
 
-A standalone multiplayer strategy game built with React, TypeScript, MUI, and React Router. Repository: [bmagee88/Hexfront](https://github.com/bmagee88/Hexfront). It has its own backend and does not depend on Cougar Cash or Padlet at runtime.
+Standalone multiplayer strategy game: React, TypeScript, MUI, and React Router. Repository: [bmagee88/Hexfront](https://github.com/bmagee88/Hexfront). Hosted entirely on Netlify, with no Render service or separate database server.
 
-## Run locally
+## Local development
 
-Requires Node 22.18+ and npm.
+Node 22.18+ and npm:
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. Vite serves the frontend and proxies `/api` to the temporary room server on port 4007. Rooms live only in backend memory: no database, disk snapshots, or room persistence across backend restarts.
+Open http://127.0.0.1:5173. Vite proxies `/api` to port 4007. Local rooms use process memory and disappear when the local backend restarts. Production rooms use temporary Netlify Blobs storage, shared across Netlify Function instances.
 
-Create a room, share the code, and ready two to four commanders. The host can cycle connected random maps or compare six previews. Two/three commanders use 42 territories; four use 44. Three private basic tiles are dealt to each player. Snake turns place a hand tile anywhere empty and draw one replacement until every base is occupied. The maximum combined basic/special hand size is three. Solo practice adds a server-operated automaton. The in-app Field Manual explains the complete rules.
+Create a room, share its code, and ready two to four commanders. The host cycles connected random maps or compares six previews. Two/three commanders use 42 territories; four use 44. Three private basics are dealt to each player. Snake turns place a hand tile anywhere empty and draw one replacement until every base is occupied. The combined basic/special hand limit is three. Solo practice adds a server-operated automaton. The Field Manual explains the full rules.
 
-## Temporary rooms
+## One-hour room expiry
 
-The backend follows Cougar Cash Padlet's process-local `Map` storage pattern. Padlet's fixed one-hour lifetime is replaced here by a sliding **one-hour inactivity timeout**. Authenticated polls, joins, and accepted commands keep a room alive. Invalid requests and bots alone cannot extend its lifetime. Visible tabs poll approximately every 1.2 seconds; background tabs request a heartbeat approximately every 30 seconds when the browser permits timers to run.
+Authenticated polls, valid joins, and accepted commands renew the room's activity timestamp. Visible tabs poll approximately every 1.2 seconds; background tabs heartbeat approximately every 30 seconds when browser timers permit. Invalid requests and bots without connected clients cannot keep rooms alive.
 
-A room is inaccessible exactly one hour after its last authenticated request. A background sweep removes expired rooms from memory every minute, even when no new requests arrive. Closing the last tab stops heartbeats, so the room expires within one hour; immediate tab-close deletion is not required or relied upon. Reconnecting before expiration restores the seat using its browser reconnect key. Restarting, redeploying, or suspending the backend can lose rooms sooner. Run exactly one backend process/instance; multiple independent memory servers cannot share rooms.
+Rooms expire exactly one hour after their last activity and cannot be rejoined after that point. Requests remove expired rooms immediately; a Netlify scheduled function sweeps abandoned rooms every five minutes even when no one visits. Cleanup conditionally claims expired state before deletion, protecting rooms refreshed by a concurrent heartbeat. There is no permanent game archive. Reconnecting before expiry restores the player's seat using the browser reconnect key.
 
-## Deploy: Netlify frontend and standalone room server
+## Netlify deployment
 
-1. Create a separate Render Node web service from this repository, or import `render.yaml`. Build: `npm ci --include=dev`; start: `npm start`; health check: `/api/health`; one instance. No database or persistent disk is needed.
-2. Set the backend's `ALLOWED_ORIGIN` to the exact HTTPS origin of the Hexfront Netlify site, without a trailing slash. The server binds to `0.0.0.0` and uses Render's `PORT`.
-3. Import this repository as a separate Netlify project. Build: `npm run build`; publish: `dist`. Set the Netlify build variable `VITE_API_BASE_URL` to the new backend's HTTPS origin, without `/api`, then deploy/rebuild.
-4. Test the health endpoint, direct `/room/:code` and `/rules` reloads, multiplayer synchronization, private hands, reactions, and reconnects.
+Import this repository into the existing `hexfront.netlify.app` project and deploy `main`. Build: `npm run build`; publish: `dist`; Functions: `netlify/functions`. `netlify.toml` routes `/api/*` to the room API before the SPA fallback. No external backend URL, Render account, SQL database, or database migration is required. Remove any old `VITE_API_BASE_URL` build variable so the frontend uses its own `/api` endpoints.
 
-`netlify.toml` provides the SPA fallback; Netlify Functions and PostgreSQL are no longer used. `render.yaml` uses the Free plan; backend sleep/restarts may clear in-memory rooms. Use a continuously running service if reconnecting during the full idle hour is required. Actual hosted deployment and URLs still require account configuration and verification.
+The `@netlify/blobs` SDK obtains server-side credentials from the Netlify Functions environment. Strongly consistent reads and atomic conditional writes protect complete room snapshots across independent Function instances. Creation is conditional on the code being absent. Updates retry against fresh state on a storage conflict; stale game versions return HTTP 409, and command UUIDs deduplicate retries. A successful write must include a confirming ETag. Private room state is never placed in static assets or returned to unauthorized clients.
 
-References: [Render web services](https://render.com/docs/web-services), [Render Blueprint configuration](https://render.com/docs/blueprint-spec).
+Production and preview stores are separated. Scheduled cleanup runs on published production deploys. `/api/health` reports the storage mode and 3,600-second timeout. Verify that endpoint and actual room creation after deployment; a successful static build alone does not prove the backend works.
+
+Official references: [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/), [scheduled Functions](https://docs.netlify.com/build/functions/scheduled-functions/).
 
 ## Map generation
 
-Map generation scores the classic Risk neighbor distribution (2/3/4/5/6 neighbors: 4/13/13/5/7 territories; average 3.95), scaled for 44 bases. Seeded randomized growth and boundary relocation favor 3–4 neighbors while keeping the board and all six regions connected. Host previews display each map's actual neighbor statistics.
+Generation scores the classic Risk neighbor distribution (2/3/4/5/6 neighbors: 4/13/13/5/7 territories; average 3.95), scaled for 44 bases. Seeded growth and boundary relocation favor 3–4 neighbors while keeping the board and all six regions connected. Host previews display actual neighbor statistics.
 
 ## Routes and authority
 
-The frontend uses Cougar Cash's `BrowserRouter`, lazy imports, `Suspense`, and explicit routes convention. `/` creates/joins rooms; `/room/:code` hosts the lobby and game; `/rules` shows the manual. The backend exposes `/api/health`, `POST /api/rooms`, `POST /api/rooms/:code/join`, authenticated `GET /api/rooms/:code`, and versioned `POST /api/rooms/:code/action`.
+The frontend follows Cougar Cash's `BrowserRouter`, lazy imports, `Suspense`, and explicit routes convention. `/` creates/joins rooms; `/room/:code` hosts the lobby and game; `/rules` shows the manual. The backend provides `/api/health`, `POST /api/rooms`, `POST /api/rooms/:code/join`, authenticated `GET /api/rooms/:code`, and versioned `POST /api/rooms/:code/action`.
 
-`shared/engine.ts` validates actors, turns, phases, resources, cards, alliances, geometry, and capacity. `shared/types.ts` defines serializable entities; `shared/cards.ts` contains prices and abilities. Synchronous in-memory transactions use copies to prevent failed validation from mutating stored rooms. UUID command IDs deduplicate retries; stale versions return HTTP 409. Timers and bots progress when clients poll. Pausing suspends reactions and renews their deadline on resume.
+`shared/engine.ts` validates actors, turns, phases, resources, cards, alliances, geometry, and capacity. `shared/types.ts` defines serializable entities; `shared/cards.ts` contains prices and abilities. Failed validation cannot mutate stored rooms. Server timers and bots progress when clients poll. Pausing suspends reactions and renews their deadline on resume.
 
-Reconnect tokens are random bearer keys stored only as hashes on the server. Clients receive their own private hand plus public state. Secret entropy, deck order, other hands, and private command history never reach other players or public exports. Requests use strict schemas, bounded payloads, room-code validation, CORS origin checks, and per-process rate limits. API responses use `no-store`.
+Reconnect tokens are random bearer keys stored only as hashes on the server. Clients receive their own hand and public state. Secret entropy, deck order, other hands, and private command history never reach other players or public exports. Requests use strict schemas, bounded payloads, room-code validation, and per-instance rate limits. Responses use `no-store`.
 
 ## Validation
 
@@ -54,6 +53,6 @@ npm run dev
 npm run test:e2e
 ```
 
-Tests cover the engine, three-tile cap, randomized maps, complete bot matches, privacy, validation, concurrent commands, reconnects, one-hour inactivity expiry, background cleanup, and cross-origin preflight. Browser checks exercise three/four independent players, the map chooser, draft, combat, reconnects, and mobile layout. Browser networking may require normal local permissions on restricted Windows systems.
+Tests cover the engine, three-tile cap, maps, bot matches, privacy, concurrent API orders across Function instances, reconnects, one-hour expiry, cleanup races, and client routing. Browser checks exercise three/four independent players, map selection, draft, combat, reconnects, and mobile layout. Restricted Windows environments may require normal local permissions for browser networking.
 
-See `RULE_DECISIONS.md` for explicit game-rule decisions. `BUILD_SPECIFICATION.md` preserves the original reference prompt; subsequent user changes supersede it.
+`RULE_DECISIONS.md` documents explicit rules. `BUILD_SPECIFICATION.md` preserves the original prompt; later user changes supersede it.

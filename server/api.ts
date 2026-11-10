@@ -10,7 +10,7 @@ import {
   view,
 } from "../shared/engine";
 import { COLORS, RESOURCES, Room } from "../shared/types";
-import { Store, ROOM_IDLE_TIMEOUT_MS } from "./store";
+import { Store, MemoryStore, ROOM_IDLE_TIMEOUT_MS } from "./store";
 const settings = z
   .object({
     seed: z.string().min(1).max(64).optional(),
@@ -172,7 +172,10 @@ export async function handleApi(
         ok: true,
         service: "hexfront",
         transport: "versioned-polling",
-        storage: "temporary-memory",
+        storage:
+          store instanceof MemoryStore
+            ? "temporary-memory"
+            : "temporary-netlify-blobs",
         idleTimeoutSeconds: ROOM_IDLE_TIMEOUT_MS / 1000,
       });
     rate(ip, now, 1200);
@@ -189,7 +192,7 @@ export async function handleApi(
       }
     }
     if (parts[1] === "rooms" && parts.length === 2 && req.method === "POST") {
-      await store.cleanup();
+      if (store instanceof MemoryStore) await store.cleanup();
       rate(`create:${ip}`, now, 12);
       const data = join.parse(body);
       const code = randomBytes(6).toString("hex").slice(0, 6).toUpperCase();

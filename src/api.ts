@@ -19,19 +19,28 @@ export async function request(
   body?: unknown,
   token?: string,
 ): Promise<any> {
-  const result = await fetch(`${API_BASE}/api${path}`, {
-    method: body ? "POST" : "GET",
-    headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let result: Response;
+  try {
+    result = await fetch(`${API_BASE}/api${path}`, {
+      method: body ? "POST" : "GET",
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error(
+      "Could not reach the game server. It may be starting up; please try again shortly.",
+    );
+  }
   let data;
   try {
     data = await result.json();
   } catch {
-    throw new Error("The game service did not respond. Please retry.");
+    throw new Error(
+      "The website responded, but the game server did not return a valid response.",
+    );
   }
   if (!result.ok)
     throw Object.assign(new Error(data.error), { status: result.status });
