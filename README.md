@@ -1,6 +1,6 @@
 # Hexfront Command
 
-A standalone multiplayer strategy game built with React, TypeScript, MUI, and React Router. Its own repository is [bmagee88/Hexfront-Command](https://github.com/bmagee88/Hexfront-Command). It does not import or run Cougar Cash, Rabbit Hole, or their backend services.
+A standalone multiplayer strategy game built with React, TypeScript, MUI, and React Router. Its own repository is [bmagee88/Hexfront](https://github.com/bmagee88/Hexfront). It does not import or run Cougar Cash, Rabbit Hole, or their backend services.
 
 ## Run locally
 
